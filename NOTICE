@@ -1,0 +1,19 @@
+Third-party software
+====================
+
+This project depends on libraries under their own licenses. Your copy of
+knittingchart (this repository) is under the MIT License; see LICENSE.
+
+PyMuPDF (import name: pymupdf)
+  Used for reading vector chart PDFs.
+  License: GNU Affero General Public License v3 (AGPL-3.0).
+  https://pypi.org/project/PyMuPDF/
+  https://www.gnu.org/licenses/agpl-3.0.html
+
+If you redistribute a bundled application that includes PyMuPDF (for example
+a frozen binary or Docker image with dependencies installed), AGPL terms may
+apply to that distribution. Installing from source with pip into a separate
+environment is the typical setup for development and personal use.
+
+Other runtime dependencies (FastAPI, Uvicorn, python-multipart, etc.) are
+generally permissive; see each package on PyPI for its license.

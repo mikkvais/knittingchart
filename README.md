@@ -2,7 +2,7 @@
 
 Convert knitting chart PDFs into **standalone HTML** or **`.kchart` JSON** with row-by-row reading aids (highlighted row, muted other rows, odd/even color invert for double knitting).
 
-Licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE). Third-party dependency notes: [NOTICE](NOTICE).
 
 ## Setup
 
@@ -51,4 +51,12 @@ python -c "from tests.conftest import write_sample_chart_pdf; from pathlib impor
 pytest
 ```
 
+## Legal
+
+- **This tool’s source** is MIT-licensed; see [LICENSE](LICENSE).
+- **PyMuPDF** (PDF parsing) is **AGPL-3.0**. If you ship a bundled app that includes it, review [NOTICE](NOTICE) and the PyMuPDF license.
+- **Your pattern PDFs** are your responsibility. Only convert files you are allowed to use. Exported HTML/`.kchart` files may embed chart data and titles from the PDF you provide; do not redistribute outputs unless your pattern license allows it.
+
 ## Contributing
+
+Pull requests are welcome. Please do not commit copyrighted knitting pattern PDFs or other paid pattern files to this repository. Use the synthetic fixture in `tests/` or your own local PDFs for testing.
