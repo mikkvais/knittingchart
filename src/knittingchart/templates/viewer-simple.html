@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>%%TITLE%% — knitting chart</title>
+  <style type="text/css">
+    body { margin: 0; padding: 0; background: #eee; color: #000; font-family: serif; font-size: 18px; }
+    h1 { font-size: 20px; font-weight: bold; margin: 8px 10px 4px; }
+    #status { font-size: 16px; margin: 0 10px 8px; font-weight: bold; }
+    #wrap { position: relative; width: 100%; height: 1780px; }
+    #scroll {
+      position: absolute; left: 0; top: 0; bottom: 0; right: %%RAIL_PX%%px;
+      overflow: scroll; overflow-x: hidden; background: #eee;
+    }
+    #chart { display: block; margin: 0; }
+    #rail {
+      position: absolute; right: 0; top: 0; bottom: 0; width: %%RAIL_PX%%px;
+      background: #ddd; border-left: 3px solid #000; box-sizing: border-box;
+      overflow: hidden;
+    }
+    #rail-tools {
+      position: absolute; left: 0; top: 0; right: 0; bottom: 210px;
+      padding: 8px; overflow: hidden;
+    }
+    #rail-nav {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 200px;
+      padding: 8px; background: #ccc; border-top: 3px solid #000;
+      box-sizing: border-box;
+    }
+    a.ctl {
+      display: block; width: 100%; margin: 0 0 8px 0; padding: 8px 4px;
+      font-size: 15px; font-weight: bold; color: #000; background: #fff;
+      border: 3px solid #000; text-align: center; text-decoration: none;
+      box-sizing: border-box;
+    }
+    a.ctl-on { background: #999; }
+    a.ctl-nav {
+      padding: 22px 4px; font-size: 20px; line-height: 1.2; margin-bottom: 10px;
+    }
+    .lbl { display: block; font-size: 14px; font-weight: bold; margin: 0 0 4px 0; }
+    #rowInput {
+      display: block; width: 100%; margin: 0 0 10px 0; padding: 8px 4px;
+      font-size: 20px; font-weight: bold; text-align: center;
+      border: 3px solid #000; background: #fff; color: #000; box-sizing: border-box;
+    }
+    .sep { height: 2px; background: #000; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>%%TITLE%%</h1>
+  <p id="status">Loading chart…</p>
+  <div id="wrap">
+    <div id="scroll">
+      <canvas id="chart"></canvas>
+    </div>
+    <div id="rail">
+      <div id="rail-tools">
+        <a class="ctl" href="javascript:void(0)" onclick="return KC.reset();">Reset</a>
+        <span class="lbl">Row</span>
+        <input type="text" id="rowInput" value="1">
+        <span class="lbl">Invert row</span>
+        <a class="ctl" id="invOffBtn" href="javascript:void(0)" onclick="return KC.invOff();">Off</a>
+        <a class="ctl" id="invEvenBtn" href="javascript:void(0)" onclick="return KC.invEven();">Even</a>
+        <a class="ctl" id="invOddBtn" href="javascript:void(0)" onclick="return KC.invOdd();">Odd</a>
+        <div class="sep"></div>
+        <a class="ctl" id="invertChartBtn" href="javascript:void(0)" onclick="return KC.invertChart();">Invert chart</a>
+      </div>
+      <div id="rail-nav">
+        <a class="ctl ctl-nav" href="javascript:void(0)" onclick="return KC.prev();">PREV ROW</a>
+        <a class="ctl ctl-nav" href="javascript:void(0)" onclick="return KC.next();">NEXT ROW</a>
+      </div>
+    </div>
+  </div>
+  <script type="text/javascript">
+    var KC = {};
+    var CHART_ID = "%%CHART_ID%%";
+    var DATA = %%CHART_DATA%%;
+    var CELL = %%CELL_PX%%;
+    var DONE_COL = Math.max(24, Math.floor(CELL * 0.85));
+
+    var MUTED_LIGHT = [204, 204, 204];
+    var MUTED_DARK = [119, 119, 119];
+    var ACTIVE_LIGHT = [255, 255, 255];
+    var ACTIVE_DARK = [0, 0, 0];
+
+    var state = { row: DATA.rowNumbers[0], invertChart: false, invertParity: "off", doneRows: {} };
+    var lastSel = -1;
+    var chartReady = false;
+    var tapLock = 0;
+
+    function guardTap(fn) {
+      return function () {
+        var now = new Date().getTime();
+        if (now - tapLock < 350) return false;
+        tapLock = now;
+        fn();
+        return false;
+      };
+    }
+
+    function storageKey(k) {
+      return "knittingchart:" + CHART_ID + ":" + k;
+    }
+
+    function loadState() {
+      try {
+        var r = localStorage.getItem(storageKey("selectedRow"));
+        if (r) state.row = parseInt(r, 10);
+        var p = localStorage.getItem(storageKey("invertParity"));
+        if (p === "even" || p === "odd") state.invertParity = p;
+        if (localStorage.getItem(storageKey("flipChart")) === "1") state.invertChart = true;
+        var doneJson = localStorage.getItem(storageKey("doneRows"));
+        if (doneJson) {
+          try {
+            state.doneRows = JSON.parse(doneJson);
+          } catch (e2) {}
+        }
+      } catch (e) {}
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(storageKey("selectedRow"), String(state.row));
+        localStorage.setItem(storageKey("invertParity"), state.invertParity);
+        localStorage.setItem(storageKey("flipChart"), state.invertChart ? "1" : "0");
+        localStorage.setItem(storageKey("doneRows"), JSON.stringify(state.doneRows));
+      } catch (e) {}
+    }
+
+    function unpackBits(b64, totalBits) {
+      var bin = atob(b64);
+      var out = [];
+      var bitIndex = 0;
+      var i, b, byte;
+      for (i = 0; i < bin.length && bitIndex < totalBits; i++) {
+        byte = bin.charCodeAt(i);
+        for (b = 7; b >= 0 && bitIndex < totalBits; b--) {
+          out[bitIndex++] = (byte >> b) & 1;
+        }
+      }
+      return out;
+    }
+
+    var bits = unpackBits(DATA.bits, DATA.rowCount * DATA.cols);
+
+    function rowCells(rowIndex) {
+      var start = rowIndex * DATA.cols;
+      return bits.slice(start, start + DATA.cols);
+    }
+
+    function rowIndexForNumber(num) {
+      var i;
+      for (i = 0; i < DATA.rowNumbers.length; i++) {
+        if (DATA.rowNumbers[i] === num) return i;
+      }
+      return 0;
+    }
+
+    function shouldInvertRow(rowNumber) {
+      if (state.invertParity === "even") return rowNumber % 2 === 0;
+      if (state.invertParity === "odd") return rowNumber % 2 === 1;
+      return false;
+    }
+
+    function cellDark(raw, rowNum, active) {
+      var dark = raw;
+      if (state.invertChart) dark = dark ? 0 : 1;
+      if (active && shouldInvertRow(rowNum)) dark = dark ? 0 : 1;
+      return dark;
+    }
+
+    function isRowDone(ri) {
+      return !!state.doneRows[String(DATA.rowNumbers[ri])];
+    }
+
+    function paletteRgb(dark, active, done) {
+      var rgb, i;
+      if (active) {
+        rgb = dark ? ACTIVE_DARK : ACTIVE_LIGHT;
+      } else {
+        rgb = dark ? MUTED_DARK : MUTED_LIGHT;
+      }
+      if (!done) return rgb;
+      return [255 - rgb[0], 255 - rgb[1], 255 - rgb[2]];
+    }
+
+    function rowIndexFromCanvasY(y) {
+      if (y < 0) return -1;
+      var rowFromTop = Math.floor(y / CELL);
+      var ri = DATA.rowCount - 1 - rowFromTop;
+      if (ri < 0 || ri >= DATA.rowCount) return -1;
+      return ri;
+    }
+
+    function toggleRowDone(ri) {
+      var key = String(DATA.rowNumbers[ri]);
+      if (state.doneRows[key]) {
+        delete state.doneRows[key];
+      } else {
+        state.doneRows[key] = true;
+      }
+      redrawRow(ri);
+      saveState();
+    }
+
+    function gridLineStyle(index, max) {
+      var scale = CELL / 14;
+      var fromAnchor = max - index;
+      if (fromAnchor % 10 === 0) {
+        return { width: scale * 2.5 > 1 ? scale * 2.5 : 1, alpha: 0.5 };
+      }
+      if (fromAnchor % 5 === 0) {
+        return { width: scale * 1.25 > 0.75 ? scale * 1.25 : 0.75, alpha: 0.38 };
+      }
+      return { width: scale * 0.5 > 0.5 ? scale * 0.5 : 0.5, alpha: 0.2 };
+    }
+
+    var canvas = document.getElementById("chart");
+    var ctx = canvas.getContext("2d");
+    var scrollEl = document.getElementById("scroll");
+
+    function drawGridLines(w, h) {
+      var cols = DATA.cols;
+      var rows = DATA.rowCount;
+      var ci, r, style, x, y;
+      ctx.lineCap = "square";
+      for (ci = 0; ci <= cols; ci++) {
+        style = gridLineStyle(ci, cols);
+        ctx.strokeStyle = "rgba(30,30,30," + style.alpha + ")";
+        ctx.lineWidth = style.width;
+        x = ci * CELL;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (r = 0; r <= rows; r++) {
+        style = gridLineStyle(r, rows);
+        ctx.strokeStyle = "rgba(30,30,30," + style.alpha + ")";
+        ctx.lineWidth = style.width;
+        y = r * CELL;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawRow(ri, active) {
+      var rowNum = DATA.rowNumbers[ri];
+      var cells = rowCells(ri);
+      var done = isRowDone(ri);
+      var ci, dark, rgb, y;
+      y = (DATA.rowCount - 1 - ri) * CELL;
+      for (ci = 0; ci < DATA.cols; ci++) {
+        dark = cellDark(cells[ci], rowNum, active);
+        rgb = paletteRgb(dark, active, done);
+        ctx.fillStyle = "rgb(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ")";
+        ctx.fillRect(ci * CELL, y, CELL, CELL);
+      }
+      drawDoneCell(ri, active, done);
+    }
+
+    function drawDoneCell(ri, active, done) {
+      var x = DATA.cols * CELL;
+      var y = (DATA.rowCount - 1 - ri) * CELL;
+      var bg;
+      if (done) {
+        bg = active ? "rgb(102,102,102)" : "rgb(153,153,153)";
+      } else {
+        bg = active ? "rgb(240,240,240)" : "rgb(255,255,255)";
+      }
+      ctx.fillStyle = bg;
+      ctx.fillRect(x, y, DONE_COL, CELL);
+      ctx.strokeStyle = "rgb(0,0,0)";
+      ctx.lineWidth = Math.max(1, Math.floor(CELL / 10));
+      ctx.strokeRect(
+        x + ctx.lineWidth / 2,
+        y + ctx.lineWidth / 2,
+        DONE_COL - ctx.lineWidth,
+        CELL - ctx.lineWidth
+      );
+      ctx.fillStyle = "rgb(0,0,0)";
+      ctx.font = "bold " + Math.max(10, Math.floor(CELL * 0.42)) + "px serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(done ? "\u2713" : "\u25CB", x + DONE_COL / 2, y + CELL / 2);
+    }
+
+    function redrawRow(ri) {
+      var sel = rowIndexForNumber(state.row);
+      drawRow(ri, ri === sel);
+      drawGridLines(DATA.cols * CELL + DONE_COL, DATA.rowCount * CELL);
+      if (ri === sel) drawHighlight(sel);
+    }
+
+    function drawHighlight(sel) {
+      var w = DATA.cols * CELL;
+      var yHighlight = (DATA.rowCount - 1 - sel) * CELL;
+      ctx.strokeStyle = "rgb(0,0,0)";
+      ctx.lineWidth = CELL / 10 > 2 ? CELL / 10 : 2;
+      ctx.strokeRect(1, yHighlight + 1, w - 2, CELL - 2);
+    }
+    function syncInvertButtons() {
+      document.getElementById("invOffBtn").className =
+        state.invertParity === "off" ? "ctl ctl-on" : "ctl";
+      document.getElementById("invEvenBtn").className =
+        state.invertParity === "even" ? "ctl ctl-on" : "ctl";
+      document.getElementById("invOddBtn").className =
+        state.invertParity === "odd" ? "ctl ctl-on" : "ctl";
+      document.getElementById("invertChartBtn").className =
+        state.invertChart ? "ctl ctl-on" : "ctl";
+    }
+
+    function updateStatus() {
+      document.getElementById("rowInput").value = String(state.row);
+      document.getElementById("status").innerHTML =
+        "Row " + state.row + " of " + DATA.rowNumbers[DATA.rowNumbers.length - 1];
+      syncInvertButtons();
+      saveState();
+    }
+
+    function fullDraw() {
+      var w = DATA.cols * CELL + DONE_COL;
+      var h = DATA.rowCount * CELL;
+      var sel = rowIndexForNumber(state.row);
+      var ri;
+      canvas.width = w;
+      canvas.height = h;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      ctx.clearRect(0, 0, w, h);
+
+      for (ri = 0; ri < DATA.rowCount; ri++) {
+        drawRow(ri, ri === sel);
+      }
+      drawGridLines(w, h);
+      drawHighlight(sel);
+      lastSel = sel;
+      chartReady = true;
+      updateStatus();
+    }
+
+    function scrollToRow() {
+      var sel = rowIndexForNumber(state.row);
+      var rowTop = (DATA.rowCount - 1 - sel) * CELL;
+      var pad = scrollEl.clientHeight / 2 - CELL / 2;
+      if (pad < 0) pad = 0;
+      var target = rowTop - pad;
+      if (target < 0) target = 0;
+      var maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+      if (maxScroll < 0) maxScroll = 0;
+      if (target > maxScroll) target = maxScroll;
+      scrollEl.scrollTop = target;
+    }
+
+    function setRow(n, full) {
+      var lo = DATA.rowNumbers[0];
+      var hi = DATA.rowNumbers[DATA.rowNumbers.length - 1];
+      if (isNaN(n)) n = state.row;
+      if (n < lo) n = lo;
+      if (n > hi) n = hi;
+      state.row = n;
+      var newSel = rowIndexForNumber(state.row);
+
+      if (full || !chartReady || lastSel < 0) {
+        fullDraw();
+      } else if (newSel !== lastSel) {
+        drawRow(lastSel, false);
+        drawRow(newSel, true);
+        drawGridLines(DATA.cols * CELL + DONE_COL, DATA.rowCount * CELL);
+        drawHighlight(newSel);
+        lastSel = newSel;
+        updateStatus();
+      } else {
+        updateStatus();
+      }
+      scrollToRow();
+    }
+
+    function step(delta) {
+      var idx = rowIndexForNumber(state.row);
+      idx += delta;
+      if (idx < 0) idx = 0;
+      if (idx >= DATA.rowNumbers.length) idx = DATA.rowNumbers.length - 1;
+      setRow(DATA.rowNumbers[idx], false);
+    }
+
+    KC.reset = guardTap(function () {
+      try {
+        localStorage.removeItem(storageKey("selectedRow"));
+        localStorage.removeItem(storageKey("invertParity"));
+        localStorage.removeItem(storageKey("flipChart"));
+        localStorage.removeItem(storageKey("doneRows"));
+      } catch (e) {}
+      state.row = DATA.rowNumbers[0];
+      state.invertChart = false;
+      state.invertParity = "off";
+      state.doneRows = {};
+      setRow(state.row, true);
+    });
+    KC.prev = guardTap(function () { step(-1); });
+    KC.next = guardTap(function () { step(1); });
+    KC.invOff = guardTap(function () {
+      state.invertParity = "off";
+      setRow(state.row, true);
+    });
+    KC.invEven = guardTap(function () {
+      state.invertParity = "even";
+      setRow(state.row, true);
+    });
+    KC.invOdd = guardTap(function () {
+      state.invertParity = "odd";
+      setRow(state.row, true);
+    });
+    KC.invertChart = guardTap(function () {
+      state.invertChart = !state.invertChart;
+      setRow(state.row, true);
+    });
+
+    document.getElementById("rowInput").onchange = function () {
+      setRow(parseInt(this.value, 10), false);
+    };
+
+    canvas.onclick = function (ev) {
+      guardTap(function () {
+        var rect = canvas.getBoundingClientRect();
+        var x = ev.clientX - rect.left;
+        var y = ev.clientY - rect.top;
+        if (x < DATA.cols * CELL) return;
+        var ri = rowIndexFromCanvasY(y);
+        if (ri >= 0) toggleRowDone(ri);
+      })();
+    };
+
+    loadState();
+    setTimeout(function () {
+      fullDraw();
+      scrollToRow();
+    }, 30);
+  </script>
+</body>
+</html>

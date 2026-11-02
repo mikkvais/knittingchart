@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Knitting chart converter</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, sans-serif;
+      color-scheme: light dark;
+      --bg: #111;
+      --panel: #1e1e1e;
+      --text: #eee;
+      --muted: #999;
+      --accent: #6cb6ff;
+      --err: #f87171;
+      --border: #333;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f0f0f0;
+        --panel: #fff;
+        --text: #111;
+        --border: #ddd;
+      }
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    main {
+      width: min(28rem, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+    p.lead { margin: 0 0 1.25rem; color: var(--muted); font-size: 0.95rem; }
+    .drop {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .drop.dragover { border-color: var(--accent); }
+    .drop input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .drop { position: relative; }
+    .filename { margin-top: 0.75rem; font-size: 0.9rem; word-break: break-all; }
+    .actions { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    button {
+      font: inherit;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #000;
+      border-color: transparent;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .status { margin-top: 1rem; font-size: 0.9rem; min-height: 1.25rem; }
+    .status.error { color: var(--err); }
+    .option-row {
+      margin-top: 1rem;
+      font-size: 0.95rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .option-row input { margin-top: 0.2rem; }
+    details { margin-top: 0.75rem; font-size: 0.85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Knitting chart converter</h1>
+    <p class="lead">Import a pattern PDF and download a standalone HTML chart for easier row-by-row knitting.</p>
+
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept=".pdf,application/pdf">
+      <strong>Choose PDF</strong> or drop it here
+      <div class="filename" id="fileLabel">No file selected</div>
+    </label>
+
+    <label class="option-row">
+      <input type="checkbox" id="simplified" value="1">
+      <span>Simplified HTML for e-readers (Kobo-sized canvas viewer)</span>
+    </label>
+    <label class="option-row">
+      <input type="checkbox" id="kchart" value="1">
+      <span>Download <code>.kchart</code> for KOReader plugin (instead of HTML)</span>
+    </label>
+
+    <div class="actions">
+      <button type="button" class="primary" id="convertBtn" disabled>Convert</button>
+      <button type="button" id="openBtn" disabled>Open in tab</button>
+      <button type="button" id="downloadBtn" disabled>Download HTML</button>
+    </div>
+
+    <p class="status" id="status"></p>
+    <details id="errDetails" hidden>
+      <summary>Technical details</summary>
+      <pre id="errPre"></pre>
+    </details>
+  </main>
+  <script>
+    const fileInput = document.getElementById("file");
+    const drop = document.getElementById("drop");
+    const fileLabel = document.getElementById("fileLabel");
+    const convertBtn = document.getElementById("convertBtn");
+    const openBtn = document.getElementById("openBtn");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const status = document.getElementById("status");
+    const errDetails = document.getElementById("errDetails");
+    const errPre = document.getElementById("errPre");
+
+    let selectedFile = null;
+    let lastBlobUrl = null;
+    let lastFilename = "knitting-chart.html";
+
+    function setFile(file) {
+      selectedFile = file;
+      fileLabel.textContent = file ? file.name : "No file selected";
+      convertBtn.disabled = !file;
+      openBtn.disabled = true;
+      downloadBtn.disabled = true;
+      clearError();
+      status.textContent = "";
+    }
+
+    function clearError() {
+      status.classList.remove("error");
+      errDetails.hidden = true;
+      errPre.textContent = "";
+    }
+
+    function showError(message, detail) {
+      status.textContent = message;
+      status.classList.add("error");
+      if (detail) {
+        errPre.textContent = detail;
+        errDetails.hidden = false;
+      }
+    }
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (file) setFile(file);
+    });
+    // Clicks on the label already activate the input; do not call input.click() again.
+    drop.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      drop.classList.add("dragover");
+    });
+    drop.addEventListener("dragleave", () => drop.classList.remove("dragover"));
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      drop.classList.remove("dragover");
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f && f.name.toLowerCase().endsWith(".pdf")) setFile(f);
+      else showError("Please drop a PDF file.");
+    });
+
+    function parseFilename(disposition) {
+      if (!disposition) return null;
+      const m = /filename="([^"]+)"/i.exec(disposition);
+      return m ? m[1] : null;
+    }
+
+    convertBtn.addEventListener("click", async () => {
+      if (!selectedFile) return;
+      clearError();
+      convertBtn.disabled = true;
+      status.textContent = "Converting… detecting charts and building HTML.";
+      const form = new FormData();
+      form.append("file", selectedFile);
+      form.append("simplified", document.getElementById("simplified").checked ? "true" : "false");
+      form.append(
+        "output_format",
+        document.getElementById("kchart").checked ? "kchart" : "html"
+      );
+
+      try {
+        const res = await fetch("/api/convert", { method: "POST", body: form });
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const j = await res.json();
+            detail = j.detail || JSON.stringify(j);
+          } catch {
+            detail = await res.text();
+          }
+          showError("Conversion failed.", detail);
+          return;
+        }
+        const blob = await res.blob();
+        lastFilename = parseFilename(res.headers.get("Content-Disposition")) || lastFilename;
+        if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
+        lastBlobUrl = URL.createObjectURL(blob);
+        openBtn.disabled = false;
+        downloadBtn.disabled = false;
+        status.textContent = document.getElementById("kchart").checked
+          ? "Done — download your .kchart for KOReader."
+          : "Done — open or download your chart HTML.";
+      } catch (err) {
+        showError("Network error.", String(err));
+      } finally {
+        convertBtn.disabled = !selectedFile;
+      }
+    });
+
+    openBtn.addEventListener("click", () => {
+      if (lastBlobUrl) window.open(lastBlobUrl, "_blank");
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      if (!lastBlobUrl) return;
+      const a = document.createElement("a");
+      a.href = lastBlobUrl;
+      a.download = lastFilename;
+      a.click();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+[project]
+name = "knittingchart"
+version = "0.1.0"
+description = "Convert knitting chart PDFs to interactive standalone HTML"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "pymupdf",
+    "pillow",
+    "numpy",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[project.scripts]
+knittingchart = "knittingchart.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

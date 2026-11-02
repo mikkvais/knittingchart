@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>%%TITLE%% — knitting chart</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #1a1a1a;
+      --panel: #2a2a2a;
+      --text: #f0f0f0;
+      --muted: #888;
+      --accent: #6cb6ff;
+      --border: #444;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f4f4f4;
+        --panel: #fff;
+        --text: #111;
+        --muted: #666;
+        --border: #ccc;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      padding-right: calc(var(--scroll-pad-right, 5.5rem) + 0.25rem);
+    }
+    header h1 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0 0 0.25rem;
+    }
+    .meta {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.35;
+    }
+    button, select, input[type="number"] {
+      font: inherit;
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); color: #000; border-color: transparent; }
+    .main {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    #scroll {
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 0 var(--scroll-pad-right, 5.5rem) 0 1rem;
+      -webkit-overflow-scrolling: touch;
+    }
+    #chartWrap {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+      max-width: 100%;
+    }
+    .side-rail {
+      position: fixed;
+      right: max(0.5rem, env(safe-area-inset-right, 0px));
+      top: calc(var(--header-h, 56px) + 0.5rem);
+      bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 0.5rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+      pointer-events: auto;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .side-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    .side-field input,
+    .side-field select {
+      width: 100%;
+      min-width: 4.75rem;
+      padding: 0.45rem 0.35rem;
+      font-size: 0.9rem;
+      touch-action: manipulation;
+    }
+    .side-rail-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 0.5rem 0;
+    }
+    .side-rail-gap-after-reset {
+      margin-bottom: 0.65rem;
+    }
+    .row-rail-btn {
+      min-width: 4.75rem;
+      min-height: 5.5rem;
+      padding: 0.75rem 1rem;
+      font-size: 2.5rem;
+      font-weight: 600;
+      line-height: 1;
+      border-radius: 12px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .row-rail-btn:active {
+      background: var(--accent);
+      color: #000;
+      border-color: transparent;
+    }
+    .row-rail-btn.is-on {
+      background: var(--accent);
+      color: #000;
+      border-color: transparent;
+    }
+    .row-rail-btn.flip-btn {
+      min-height: 3.25rem;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .row-rail-btn.reset-btn {
+      min-height: 2.75rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .row-rail-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      text-align: center;
+      margin: 0;
+      line-height: 1.2;
+    }
+    canvas {
+      display: block;
+      flex-shrink: 0;
+      height: auto;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      border: 1px solid var(--border);
+      background: #666;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>%%TITLE%%</h1>
+    <p class="meta" id="status"></p>
+  </header>
+  <div class="main">
+    <div id="scroll">
+      <div id="chartWrap">
+        <canvas id="chart"></canvas>
+      </div>
+    </div>
+  </div>
+  <nav class="side-rail" id="rowRail" aria-label="Chart controls">
+    <button type="button" id="resetSettings" class="row-rail-btn reset-btn side-rail-gap-after-reset">Reset saved</button>
+    <label class="side-field">
+      Row
+      <input type="number" id="rowInput" min="1" step="1">
+    </label>
+    <label class="side-field">
+      Invert on
+      <select id="invertParity">
+        <option value="off">Off</option>
+        <option value="even">Even rows</option>
+        <option value="odd">Odd rows</option>
+      </select>
+    </label>
+    <div class="side-rail-divider" aria-hidden="true"></div>
+    <button type="button" id="flipChartBtn" class="row-rail-btn flip-btn" title="Invert all chart colors" aria-pressed="false">Invert chart</button>
+    <button type="button" id="prevRow" class="row-rail-btn" title="Previous row" aria-label="Previous row">▲</button>
+    <p class="row-rail-label">Prev</p>
+    <button type="button" id="nextRow" class="row-rail-btn" title="Next row" aria-label="Next row">▼</button>
+    <p class="row-rail-label">Next</p>
+  </nav>
+  <script>
+    const CHART_ID = "%%CHART_ID%%";
+    const DATA = %%CHART_DATA%%;
+
+    const MIN_CELL = 4;
+    const MAX_CELL = 28;
+    let CELL = 14;
+    const MUTED_LIGHT = [200, 200, 200];
+    const MUTED_DARK = [110, 110, 110];
+    const ACTIVE_LIGHT = [255, 255, 255];
+    const ACTIVE_DARK = [0, 0, 0];
+
+    function storageKey(suffix) {
+      return "knittingchart:" + CHART_ID + ":" + suffix;
+    }
+
+    function loadSettings() {
+      const row = localStorage.getItem(storageKey("selectedRow"));
+      const invert = localStorage.getItem(storageKey("invertParity"));
+      let doneRows = {};
+      const doneJson = localStorage.getItem(storageKey("doneRows"));
+      if (doneJson) {
+        try {
+          doneRows = JSON.parse(doneJson);
+        } catch (e) {
+          doneRows = {};
+        }
+      }
+      return {
+        selectedRow: row ? parseInt(row, 10) : DATA.rowNumbers[0],
+        invertParity: invert === "even" || invert === "odd" ? invert : "off",
+        flipChart:
+          localStorage.getItem(storageKey("flipChart")) === "1" ||
+          localStorage.getItem(storageKey("flipRow")) === "1",
+        doneRows,
+      };
+    }
+
+    function saveSettings(state) {
+      localStorage.setItem(storageKey("selectedRow"), String(state.selectedRow));
+      localStorage.setItem(storageKey("invertParity"), state.invertParity);
+      localStorage.setItem(storageKey("flipChart"), state.flipChart ? "1" : "0");
+      localStorage.setItem(storageKey("doneRows"), JSON.stringify(state.doneRows || {}));
+    }
+
+    function doneColWidth() {
+      return Math.max(24, Math.floor(CELL * 0.85));
+    }
+
+    function isRowDone(ri) {
+      return !!state.doneRows[String(DATA.rowNumbers[ri])];
+    }
+
+    function paletteRgb(dark, active, done) {
+      let rgb;
+      if (active) {
+        rgb = dark ? ACTIVE_DARK : ACTIVE_LIGHT;
+      } else {
+        rgb = dark ? MUTED_DARK : MUTED_LIGHT;
+      }
+      if (!done) return rgb;
+      return [255 - rgb[0], 255 - rgb[1], 255 - rgb[2]];
+    }
+
+    function rowIndexFromCanvasY(y) {
+      if (y < 0) return -1;
+      const rowFromTop = Math.floor(y / CELL);
+      const ri = DATA.rowCount - 1 - rowFromTop;
+      if (ri < 0 || ri >= DATA.rowCount) return -1;
+      return ri;
+    }
+
+    function toggleRowDone(ri) {
+      const key = String(DATA.rowNumbers[ri]);
+      if (state.doneRows[key]) delete state.doneRows[key];
+      else state.doneRows[key] = true;
+      draw();
+      requestAnimationFrame(scrollToSelected);
+    }
+
+    function unpackBits(b64, totalBits) {
+      const bin = atob(b64);
+      const out = new Uint8Array(totalBits);
+      let bitIndex = 0;
+      for (let i = 0; i < bin.length && bitIndex < totalBits; i++) {
+        let byte = bin.charCodeAt(i);
+        for (let b = 7; b >= 0 && bitIndex < totalBits; b--) {
+          out[bitIndex++] = (byte >> b) & 1;
+        }
+      }
+      return out;
+    }
+
+    const bits = unpackBits(DATA.bits, DATA.rowCount * DATA.cols);
+
+    function rowCells(rowIndex) {
+      const start = rowIndex * DATA.cols;
+      return bits.subarray(start, start + DATA.cols);
+    }
+
+    const state = loadSettings();
+    const canvas = document.getElementById("chart");
+    const ctx = canvas.getContext("2d");
+    const scrollEl = document.getElementById("scroll");
+    const chartWrap = document.getElementById("chartWrap");
+    const rowInput = document.getElementById("rowInput");
+    const invertSelect = document.getElementById("invertParity");
+    const statusEl = document.getElementById("status");
+    const flipChartBtn = document.getElementById("flipChartBtn");
+    const headerEl = document.querySelector("header");
+    const rowRail = document.getElementById("rowRail");
+
+    invertSelect.value = state.invertParity;
+    flipChartBtn.classList.toggle("is-on", state.flipChart);
+    flipChartBtn.setAttribute("aria-pressed", state.flipChart ? "true" : "false");
+    rowInput.min = String(DATA.rowNumbers[0]);
+    rowInput.max = String(DATA.rowNumbers[DATA.rowNumbers.length - 1]);
+
+    function rowIndexForNumber(num) {
+      const idx = DATA.rowNumbers.indexOf(num);
+      if (idx >= 0) return idx;
+      return Math.max(0, Math.min(DATA.rowCount - 1, num - DATA.rowNumbers[0]));
+    }
+
+    function selectedIndex() {
+      return rowIndexForNumber(state.selectedRow);
+    }
+
+    function shouldInvertRow(rowNumber) {
+      if (state.invertParity === "even") return rowNumber % 2 === 0;
+      if (state.invertParity === "odd") return rowNumber % 2 === 1;
+      return false;
+    }
+
+    function cellDark(raw, rowNum, active) {
+      let dark = raw;
+      if (state.flipChart) dark = 1 - dark;
+      if (active && shouldInvertRow(rowNum)) dark = 1 - dark;
+      return dark;
+    }
+
+    function rowDirection(rowNumber) {
+      return rowNumber % 2 === 1 ? "Right → left" : "Left → right";
+    }
+
+    /** Grid emphasis counts from column 1 / row 1 (bottom-right of printed chart). */
+    function gridLineStyle(index, max) {
+      const scale = CELL / 14;
+      const fromAnchor = max - index;
+      if (fromAnchor % 10 === 0) {
+        return { width: Math.max(1, 2.5 * scale), alpha: 0.5 };
+      }
+      if (fromAnchor % 5 === 0) {
+        return { width: Math.max(0.75, 1.25 * scale), alpha: 0.38 };
+      }
+      return { width: Math.max(0.5, 0.5 * scale), alpha: 0.2 };
+    }
+
+    function drawGridLines(w, h) {
+      ctx.lineCap = "square";
+      const cols = DATA.cols;
+      const rows = DATA.rowCount;
+      for (let ci = 0; ci <= cols; ci++) {
+        const { width, alpha } = gridLineStyle(ci, cols);
+        ctx.strokeStyle = "rgba(30,30,30," + alpha + ")";
+        ctx.lineWidth = width;
+        const x = ci * CELL;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let r = 0; r <= rows; r++) {
+        const { width, alpha } = gridLineStyle(r, rows);
+        ctx.strokeStyle = "rgba(30,30,30," + alpha + ")";
+        ctx.lineWidth = width;
+        const y = r * CELL;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+    }
+
+    function draw() {
+      const doneCol = doneColWidth();
+      const w = DATA.cols * CELL + doneCol;
+      const h = DATA.rowCount * CELL;
+      canvas.width = w;
+      canvas.height = h;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      ctx.clearRect(0, 0, w, h);
+
+      const sel = selectedIndex();
+      for (let ri = 0; ri < DATA.rowCount; ri++) {
+        const rowNum = DATA.rowNumbers[ri];
+        const cells = rowCells(ri);
+        const active = ri === sel;
+        const done = isRowDone(ri);
+        const y = (DATA.rowCount - 1 - ri) * CELL;
+        for (let ci = 0; ci < DATA.cols; ci++) {
+          const dark = cellDark(cells[ci], rowNum, active);
+          const rgb = paletteRgb(dark, active, done);
+          ctx.fillStyle = "rgb(" + rgb.join(",") + ")";
+          ctx.fillRect(ci * CELL, y, CELL, CELL);
+        }
+        const xDone = DATA.cols * CELL;
+        ctx.fillStyle = done
+          ? active
+            ? "rgb(102,102,102)"
+            : "rgb(153,153,153)"
+          : active
+            ? "rgb(240,240,240)"
+            : "rgb(255,255,255)";
+        ctx.fillRect(xDone, y, doneCol, CELL);
+        ctx.strokeStyle = "rgb(0,0,0)";
+        ctx.lineWidth = Math.max(1, Math.floor(CELL / 10));
+        ctx.strokeRect(
+          xDone + ctx.lineWidth / 2,
+          y + ctx.lineWidth / 2,
+          doneCol - ctx.lineWidth,
+          CELL - ctx.lineWidth
+        );
+        ctx.fillStyle = "rgb(0,0,0)";
+        ctx.font = "bold " + Math.max(10, Math.floor(CELL * 0.42)) + "px serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(done ? "\u2713" : "\u25CB", xDone + doneCol / 2, y + CELL / 2);
+      }
+
+      drawGridLines(w, h);
+
+      ctx.strokeStyle = "rgba(108, 182, 255, 0.85)";
+      ctx.lineWidth = Math.max(1.5, 2 * (CELL / 14));
+      const yHighlight = (DATA.rowCount - 1 - sel) * CELL;
+      ctx.strokeRect(1, yHighlight + 1, DATA.cols * CELL - 2, CELL - 2);
+
+      rowInput.value = state.selectedRow;
+      let extra = "";
+      if (state.flipChart) extra += " · chart inverted";
+      else if (state.invertParity !== "off") extra += " · auto invert " + state.invertParity;
+      statusEl.textContent =
+        "Row " + state.selectedRow + " of " + DATA.rowNumbers[DATA.rowNumbers.length - 1] +
+        " · read " + rowDirection(state.selectedRow) + extra;
+      flipChartBtn.classList.toggle("is-on", state.flipChart);
+      flipChartBtn.setAttribute("aria-pressed", state.flipChart ? "true" : "false");
+      saveSettings(state);
+    }
+
+    function updateHeaderHeight() {
+      document.documentElement.style.setProperty(
+        "--header-h",
+        headerEl.offsetHeight + "px"
+      );
+    }
+
+    function updateScrollPadding() {
+      const pad = Math.max(0, scrollEl.clientHeight / 2 - CELL / 2);
+      chartWrap.style.paddingTop = pad + "px";
+      chartWrap.style.paddingBottom = pad + "px";
+    }
+
+    function updateRailPadding() {
+      const gap = 12;
+      const railW = rowRail.getBoundingClientRect().width;
+      document.documentElement.style.setProperty(
+        "--scroll-pad-right",
+        Math.ceil(railW + gap) + "px"
+      );
+    }
+
+    function computeCellSize() {
+      updateRailPadding();
+      const style = getComputedStyle(scrollEl);
+      const padL = parseFloat(style.paddingLeft) || 16;
+      const padR = parseFloat(style.paddingRight) || 88;
+      const doneCol = doneColWidth();
+      const avail = scrollEl.clientWidth - padL - padR - doneCol;
+      if (avail <= 0) return MIN_CELL;
+      const cell = Math.floor(avail / DATA.cols);
+      return Math.max(MIN_CELL, Math.min(MAX_CELL, cell));
+    }
+
+    function relayout(redraw) {
+      updateHeaderHeight();
+      updateRailPadding();
+      const nextCell = computeCellSize();
+      if (nextCell !== CELL) {
+        CELL = nextCell;
+        redraw = true;
+      }
+      if (redraw) draw();
+      updateScrollPadding();
+      requestAnimationFrame(scrollToSelected);
+    }
+
+    function scrollToSelected() {
+      const sel = selectedIndex();
+      const rowTop = (DATA.rowCount - 1 - sel) * CELL;
+      const scrollRect = scrollEl.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      const rowCenterInContent =
+        canvasRect.top - scrollRect.top + scrollEl.scrollTop + rowTop + CELL / 2;
+      const target = rowCenterInContent - scrollEl.clientHeight / 2;
+      const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+      scrollEl.scrollTop = Math.max(0, Math.min(maxScroll, target));
+    }
+
+    function syncViewport() {
+      relayout(false);
+    }
+
+    function setRow(num) {
+      const lo = DATA.rowNumbers[0];
+      const hi = DATA.rowNumbers[DATA.rowNumbers.length - 1];
+      state.selectedRow = Math.max(lo, Math.min(hi, num));
+      draw();
+      requestAnimationFrame(scrollToSelected);
+    }
+
+    function stepPrevRow() {
+      const idx = selectedIndex();
+      if (idx > 0) setRow(DATA.rowNumbers[idx - 1]);
+    }
+
+    function stepNextRow() {
+      const idx = selectedIndex();
+      if (idx < DATA.rowCount - 1) setRow(DATA.rowNumbers[idx + 1]);
+    }
+
+    function bindHoldRepeat(button, stepFn) {
+      const INITIAL_MS = 450;
+      const REPEAT_MS = 85;
+      let delayId = null;
+      let repeatId = null;
+
+      function clearTimers() {
+        if (delayId !== null) clearTimeout(delayId);
+        if (repeatId !== null) clearInterval(repeatId);
+        delayId = null;
+        repeatId = null;
+      }
+
+      function onPress(ev) {
+        if (ev.type === "touchstart") ev.preventDefault();
+        stepFn();
+        clearTimers();
+        delayId = setTimeout(() => {
+          repeatId = setInterval(stepFn, REPEAT_MS);
+        }, INITIAL_MS);
+      }
+
+      button.addEventListener("mousedown", (ev) => {
+        if (ev.button === 0) onPress(ev);
+      });
+      button.addEventListener("touchstart", onPress, { passive: false });
+      button.addEventListener("mouseup", clearTimers);
+      button.addEventListener("mouseleave", clearTimers);
+      button.addEventListener("touchend", clearTimers);
+      button.addEventListener("touchcancel", clearTimers);
+      button.addEventListener("click", (ev) => ev.preventDefault());
+    }
+
+    bindHoldRepeat(document.getElementById("prevRow"), stepPrevRow);
+    bindHoldRepeat(document.getElementById("nextRow"), stepNextRow);
+    rowInput.addEventListener("change", () => setRow(parseInt(rowInput.value, 10)));
+    invertSelect.addEventListener("change", () => {
+      state.invertParity = invertSelect.value;
+      draw();
+    });
+    flipChartBtn.addEventListener("click", () => {
+      state.flipChart = !state.flipChart;
+      draw();
+    });
+    document.getElementById("resetSettings").addEventListener("click", () => {
+      localStorage.removeItem(storageKey("selectedRow"));
+      localStorage.removeItem(storageKey("invertParity"));
+      localStorage.removeItem(storageKey("flipChart"));
+      localStorage.removeItem(storageKey("flipRow"));
+      localStorage.removeItem(storageKey("doneRows"));
+      state.selectedRow = DATA.rowNumbers[0];
+      state.invertParity = "off";
+      state.flipChart = false;
+      state.doneRows = {};
+      invertSelect.value = "off";
+      draw();
+      requestAnimationFrame(scrollToSelected);
+    });
+
+    window.addEventListener("resize", () => relayout(true));
+
+    canvas.addEventListener("click", (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left;
+      const y = ev.clientY - rect.top;
+      if (x < DATA.cols * CELL) return;
+      const ri = rowIndexFromCanvasY(y);
+      if (ri >= 0) toggleRowDone(ri);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.target === rowInput) return;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        stepPrevRow();
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        stepNextRow();
+      }
+    });
+
+    relayout(true);
+  </script>
+</body>
+</html>
